@@ -39,7 +39,6 @@ pnpm-debug.log*
 coverage/
 frontend/dist/
 frontend/build/
-models/*.pkl
 data/raw/*.csv
 
 # ML artifacts
