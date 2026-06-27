@@ -12,3 +12,4 @@ joblib
 optuna
 matplotlib
 seaborn
+gunicorn
