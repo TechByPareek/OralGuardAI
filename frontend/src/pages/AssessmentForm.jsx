@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
-const API_URL = 'https://oralguard-api.onrender.com/'
+const API_URL = 'https://oralguard-api.onrender.com'
 
 export default function AssessmentForm() {
   const navigate = useNavigate()
@@ -63,12 +63,22 @@ export default function AssessmentForm() {
         flossing: parseInt(form.flossing),
         mouthwash: parseInt(form.mouthwash),
       }
-      const res = await axios.post(`${API_URL}/predict`, payload)
+      const url = 'https://oralguard-api.onrender.com/predict'
+      console.log('Submitting prediction request', { url, payload })
+      const res = await axios.post(url, payload)
       navigate('/results', { state: { result: res.data, form } })
     } catch (e) {
+      const response = e.response
+      console.error('Prediction request failed', {
+        url: response?.config?.url || 'https://oralguard-api.onrender.com/predict',
+        status: response?.status,
+        statusText: response?.statusText,
+        responseBody: response?.data,
+        errorMessage: e.message,
+      })
       setError(e.code === 'ERR_NETWORK'
-        ? 'Cannot connect to backend. Make sure uvicorn is running on port 8000.'
-        : `Error: ${e.response?.data?.detail || e.message}`)
+        ? 'Cannot connect to backend. Make sure the backend is reachable.'
+        : `Error: ${response?.data?.detail || e.message}`)
     } finally { setLoading(false) }
   }
 
