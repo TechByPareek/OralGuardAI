@@ -107,10 +107,9 @@ VITE_API_URL=http://localhost:8000
 
 ## 8. Screenshots
 
-| Home | Assessment | Results |
-|---|---|---|
-| ![Home](Screenshots/home.png) | ![Form](Screenshots/form.png) | ![Results](Screenshots/result ss 1.png) | (Screenshots/result ss 2.png) | (Screenshots/result ss 3.png)
-
+| Home | Form | Result 1 | Result 2 | Result 3 |
+|------|------|----------|----------|----------|
+| ![Home](Screenshots/home.png) | ![Form](Screenshots/form.png) | ![Result 1](Screenshots/result1.png) | ![Result 2](Screenshots/result2.png) | ![Result 3](Screenshots/result3.png) |
 ---
 
 ## 9. Limitations
