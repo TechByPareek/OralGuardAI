@@ -77,7 +77,7 @@ export default function AssessmentForm() {
         errorMessage: e.message,
       })
       setError(e.code === 'ERR_NETWORK'
-        ? 'Cannot connect to backend. Make sure the backend is reachable.'
+        ? 'Server is waking up after inactivity — please wait 30 seconds and try again.'
         : `Error: ${response?.data?.detail || e.message}`)
     } finally { setLoading(false) }
   }

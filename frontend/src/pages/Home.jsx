@@ -1,7 +1,12 @@
 import { useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 
 export default function Home() {
   const navigate = useNavigate()
+  useEffect(() => {
+  fetch('https://oralguard-api.onrender.com/health')
+    .catch(() => {})
+}, [])
 
   const features = [
     { icon: '🤖', title: 'XGBoost AI Model', desc: 'Trained on real Gen Z survey data from Indian college students with SMOTE balancing' },
