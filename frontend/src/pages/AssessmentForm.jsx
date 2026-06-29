@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
@@ -9,6 +9,7 @@ export default function AssessmentForm() {
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [cities, setCities] = useState([])
 
   const [form, setForm] = useState({
     age_group: '', gender: '', occupation: '', location: '',
@@ -24,6 +25,24 @@ export default function AssessmentForm() {
   })
 
   const update = (field, value) => setForm(prev => ({ ...prev, [field]: value }))
+
+  useEffect(() => {
+    fetch('https://countriesnow.space/api/v0.1/countries/cities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ country: 'India' })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data?.data) setCities(data.data.sort())
+      })
+      .catch(() => setCities([
+        'Ahmedabad','Bangalore','Bhopal','Chandigarh',
+        'Chennai','Delhi','Gurgaon','Hyderabad','Indore',
+        'Jaipur','Kolkata','Lucknow','Mumbai','Nagpur',
+        'Noida','Pune','Surat','Vadodara','Visakhapatnam'
+      ]))
+  }, [])
 
   const validate = () => {
     if (step === 1) {
@@ -171,9 +190,23 @@ export default function AssessmentForm() {
 
             <div className="form-group">
               <label className="form-label">City *</label>
-              <input className="form-input" type="text"
-                placeholder="e.g. Delhi, Mumbai, Bangalore..."
-                value={form.location} onChange={e => update('location', e.target.value)} />
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Type to search your city..."
+                value={form.location}
+                onChange={e => update('location', e.target.value)}
+                list="cities-list"
+              />
+              <datalist id="cities-list">
+                {cities.map((city, i) => (
+                  <option key={i} value={city} />
+                ))}
+              </datalist>
+              {cities.length === 0 && (
+                <p style={{ fontSize: '12px', color: '#94a3b8', 
+                marginTop: '4px' }}>Loading cities...</p>
+              )}
             </div>
           </>}
 
