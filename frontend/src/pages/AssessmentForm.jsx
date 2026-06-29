@@ -24,6 +24,17 @@ export default function AssessmentForm() {
     processed_food: 'medium', sugary_drinks: 'medium', fruit_veg_intake: 'medium'
   })
 
+  const [loadingStep, setLoadingStep] = useState(0)
+
+  const loadingSteps = [
+    { icon: '🔌', text: 'Waking up AI server...', subtext: 'Free tier server starting up' },
+    { icon: '📊', text: 'Loading your data...', subtext: 'Preparing 29 input features' },
+    { icon: '🤖', text: 'Running XGBoost model...', subtext: 'Analysing across 262 decision trees' },
+    { icon: '🔍', text: 'Calculating SHAP values...', subtext: 'Finding your top risk factors' },
+    { icon: '💡', text: 'Generating recommendations...', subtext: 'Personalising advice for you' },
+    { icon: '✅', text: 'Almost ready!', subtext: 'Preparing your report' },
+  ]
+
   const update = (field, value) => setForm(prev => ({ ...prev, [field]: value }))
 
   useEffect(() => {
@@ -60,6 +71,13 @@ export default function AssessmentForm() {
   const handleSubmit = async () => {
     if (!validate()) return
     setLoading(true); setError('')
+    setLoadingStep(0)
+    const stepInterval = setInterval(() => {
+      setLoadingStep(prev => {
+        if (prev < loadingSteps.length - 1) return prev + 1
+        return prev
+      })
+    }, 4000)
     try {
       const payload = {
         ...form,
@@ -98,7 +116,11 @@ export default function AssessmentForm() {
       setError(e.code === 'ERR_NETWORK'
         ? 'Server is waking up after inactivity — please wait 30 seconds and try again.'
         : `Error: ${response?.data?.detail || e.message}`)
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+      clearInterval(stepInterval)
+      setLoadingStep(0)
+    }
   }
 
   const OptionCard = ({ field, value, icon, label, sub, danger }) => {
@@ -396,10 +418,96 @@ export default function AssessmentForm() {
             }
             {step < 3
               ? <button className="btn-primary" onClick={handleNext}>Next Step →</button>
-              : <button className="btn-primary" onClick={handleSubmit} disabled={loading}
-                  style={{ opacity: loading ? 0.7 : 1, minWidth: '180px' }}>
-                  {loading ? '⏳ Analysing...' : '🔍 Get My Report'}
-                </button>
+              : (
+                <>
+                  {loading ? (
+                    <div style={{
+                      position: 'fixed',
+                      top: 0, left: 0, right: 0, bottom: 0,
+                      background: 'rgba(15, 23, 42, 0.85)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      zIndex: 9999,
+                      flexDirection: 'column',
+                      gap: '0px'
+                    }}>
+                      <div style={{
+                        background: 'white',
+                        borderRadius: '20px',
+                        padding: '40px 36px',
+                        textAlign: 'center',
+                        maxWidth: '340px',
+                        width: '90%',
+                        boxShadow: '0 25px 50px rgba(0,0,0,0.3)'
+                      }}>
+                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>
+                          {loadingSteps[loadingStep]?.icon}
+                        </div>
+                        <div style={{
+                          fontSize: '18px',
+                          fontWeight: 800,
+                          color: '#0f172a',
+                          marginBottom: '6px'
+                        }}>
+                          {loadingSteps[loadingStep]?.text}
+                        </div>
+                        <div style={{
+                          fontSize: '13px',
+                          color: '#64748b',
+                          marginBottom: '24px'
+                        }}>
+                          {loadingSteps[loadingStep]?.subtext}
+                        </div>
+
+                        <div style={{
+                          background: '#f1f5f9',
+                          borderRadius: '99px',
+                          height: '6px',
+                          overflow: 'hidden',
+                          marginBottom: '12px'
+                        }}>
+                          <div style={{
+                            height: '6px',
+                            borderRadius: '99px',
+                            background: 'linear-gradient(90deg, #2563eb, #7c3aed)',
+                            width: `${((loadingStep + 1) / loadingSteps.length) * 100}%`,
+                            transition: 'width 0.8s ease'
+                          }}/>
+                        </div>
+
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#94a3b8'
+                        }}>
+                          Step {loadingStep + 1} of {loadingSteps.length}
+                        </div>
+
+                        <div style={{
+                          marginTop: '20px',
+                          padding: '12px',
+                          background: '#eff6ff',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                          color: '#1d4ed8'
+                        }}>
+                          💙 First request after inactivity takes ~30 seconds. 
+                          Subsequent requests are instant!
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {!loading && (
+                    <button
+                      className="btn-primary"
+                      onClick={handleSubmit}
+                      style={{ marginLeft: 'auto', minWidth: '180px' }}>
+                      🔍 Get My Report
+                    </button>
+                  )}
+                </>
+              )
             }
           </div>
         </div>
