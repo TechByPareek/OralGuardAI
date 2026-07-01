@@ -572,3 +572,8 @@ html, body {
     font-size: 16px; /* prevents iOS zoom on focus */
   }
 }
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}

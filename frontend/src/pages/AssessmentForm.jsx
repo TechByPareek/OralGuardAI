@@ -27,12 +27,60 @@ export default function AssessmentForm() {
   const [loadingStep, setLoadingStep] = useState(0)
 
   const loadingSteps = [
-    { icon: '🔌', text: 'Waking up AI server...', subtext: 'Free tier server starting up' },
-    { icon: '📊', text: 'Loading your data...', subtext: 'Preparing 29 input features' },
-    { icon: '🤖', text: 'Running XGBoost model...', subtext: 'Analysing across 262 decision trees' },
-    { icon: '🔍', text: 'Calculating SHAP values...', subtext: 'Finding your top risk factors' },
-    { icon: '💡', text: 'Generating recommendations...', subtext: 'Personalising advice for you' },
-    { icon: '✅', text: 'Almost ready!', subtext: 'Preparing your report' },
+    { 
+      icon: '🔌', 
+      text: 'Connecting to AI server...', 
+      subtext: 'Waking up the backend — this takes ~30 sec after inactivity',
+      color: '#6366f1'
+    },
+    { 
+      icon: '📋', 
+      text: 'Reading your responses...', 
+      subtext: 'Processing 29 health and lifestyle inputs',
+      color: '#0ea5e9'
+    },
+    { 
+      icon: '⚙️', 
+      text: 'Preparing data pipeline...', 
+      subtext: 'Encoding and scaling your inputs for the ML model',
+      color: '#0ea5e9'
+    },
+    { 
+      icon: '🤖', 
+      text: 'Running XGBoost model...', 
+      subtext: 'Analysing your profile across 262 decision trees',
+      color: '#8b5cf6'
+    },
+    { 
+      icon: '🔍', 
+      text: 'Calculating SHAP values...', 
+      subtext: 'Finding which factors are driving your risk score',
+      color: '#8b5cf6'
+    },
+    { 
+      icon: '🗺️', 
+      text: 'Mapping your risk radar...', 
+      subtext: 'Building your 5-category risk breakdown chart',
+      color: '#ec4899'
+    },
+    { 
+      icon: '💡', 
+      text: 'Generating recommendations...', 
+      subtext: 'Personalising health advice based on your top risk factors',
+      color: '#f59e0b'
+    },
+    { 
+      icon: '📄', 
+      text: 'Preparing your report...', 
+      subtext: 'Almost done — putting everything together',
+      color: '#22c55e'
+    },
+    { 
+      icon: '✅', 
+      text: 'Your report is ready!', 
+      subtext: 'Taking you to your results now...',
+      color: '#22c55e'
+    },
   ]
 
   const update = (field, value) => setForm(prev => ({ ...prev, [field]: value }))
@@ -77,7 +125,7 @@ export default function AssessmentForm() {
         if (prev < loadingSteps.length - 1) return prev + 1
         return prev
       })
-    }, 4000)
+    }, 6000)
     try {
       const payload = {
         ...form,
@@ -441,7 +489,11 @@ export default function AssessmentForm() {
                         width: '90%',
                         boxShadow: '0 25px 50px rgba(0,0,0,0.3)'
                       }}>
-                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>
+                        <div style={{ 
+                          fontSize: '52px', 
+                          marginBottom: '16px',
+                          animation: 'pulse 1.5s ease-in-out infinite'
+                        }}>
                           {loadingSteps[loadingStep]?.icon}
                         </div>
                         <div style={{
@@ -470,29 +522,33 @@ export default function AssessmentForm() {
                           <div style={{
                             height: '6px',
                             borderRadius: '99px',
-                            background: 'linear-gradient(90deg, #2563eb, #7c3aed)',
+                            background: `linear-gradient(90deg, #2563eb, ${loadingSteps[loadingStep]?.color || '#7c3aed'})`,
                             width: `${((loadingStep + 1) / loadingSteps.length) * 100}%`,
-                            transition: 'width 0.8s ease'
+                            transition: 'width 1.2s ease'
                           }}/>
                         </div>
 
                         <div style={{
                           fontSize: '12px',
-                          color: '#94a3b8'
+                          color: '#94a3b8',
+                          marginTop: '4px'
                         }}>
-                          Step {loadingStep + 1} of {loadingSteps.length}
+                          Step {loadingStep + 1} of {loadingSteps.length} 
+                          · {Math.round(((loadingStep + 1) / loadingSteps.length) * 100)}% complete
                         </div>
 
                         <div style={{
                           marginTop: '20px',
-                          padding: '12px',
-                          background: '#eff6ff',
+                          padding: '12px 14px',
+                          background: '#f0fdf4',
                           borderRadius: '8px',
                           fontSize: '12px',
-                          color: '#1d4ed8'
+                          color: '#166534',
+                          lineHeight: 1.5
                         }}>
-                          💙 First request after inactivity takes ~30 seconds. 
-                          Subsequent requests are instant!
+                          ⏱️ <strong>Did you know?</strong> Oral cancer is 90% treatable 
+                          when caught early. This assessment checks {29} risk indicators 
+                          across your lifestyle and symptoms.
                         </div>
                       </div>
                     </div>
