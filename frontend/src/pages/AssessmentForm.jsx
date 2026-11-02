@@ -1,8 +1,100 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { Activity, ArrowLeft, ArrowRight, Check, CheckCircle2, Circle, HeartPulse, Info, ShieldCheck, Sparkles, UserRound, TriangleAlert, Stethoscope } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
 const API_URL = 'https://oralguard-api.onrender.com'
+
+const stepTitles = ['About You', 'Habits & Hygiene', 'Symptoms & History']
+const stepDescriptions = [
+  "Let's start with you. A few basics help us put your answers in context.",
+  'Tell us about your habits — no judgement. This is just for awareness.',
+  'Last step — any symptoms or health history you would like to share?',
+]
+
+const loadingSteps = [
+  { icon: '🔌', text: 'Connecting to AI server...', subtext: 'Waking up the backend — this takes ~30 sec after inactivity', color: '#6366f1' },
+  { icon: '📋', text: 'Reading your responses...', subtext: 'Processing 29 health and lifestyle inputs', color: '#0ea5e9' },
+  { icon: '⚙️', text: 'Preparing data pipeline...', subtext: 'Encoding and scaling your inputs for the ML model', color: '#0ea5e9' },
+  { icon: '🤖', text: 'Running XGBoost model...', subtext: 'Analysing your profile across 262 decision trees', color: '#8b5cf6' },
+  { icon: '🔍', text: 'Calculating SHAP values...', subtext: 'Finding which factors are driving your risk score', color: '#8b5cf6' },
+  { icon: '🗺️', text: 'Mapping your risk radar...', subtext: 'Building your 5-category risk breakdown chart', color: '#ec4899' },
+  { icon: '💡', text: 'Generating recommendations...', subtext: 'Personalising health advice based on your top risk factors', color: '#f59e0b' },
+  { icon: '📄', text: 'Preparing your report...', subtext: 'Almost done — putting everything together', color: '#22c55e' },
+  { icon: '✅', text: 'Your report is ready!', subtext: 'Taking you to your results now...', color: '#22c55e' },
+]
+
+function OptionCard({ field, value, icon, label, sub, danger, form, update }) {
+  const selected = String(form[field]) === String(value)
+  return (
+    <button
+      type="button"
+      className={`option-card${selected ? (danger ? ' selected-danger' : ' selected') : ''}`}
+      onClick={() => update(field, value)}
+      aria-pressed={selected}
+    >
+      <span className="option-icon"><span className="option-icon-emoji" aria-hidden="true">{icon}</span></span>
+      <span className="option-label">{label}</span>
+      {sub && <span className="option-sub">{sub}</span>}
+      {selected && <span className="selected-check" aria-hidden="true"><Check size={12} /></span>}
+    </button>
+  )
+}
+
+function YesNo({ field, form, update, yesLabel = 'Yes', noLabel = 'No' }) {
+  const isYes = String(form[field]) === '1'
+  return (
+    <div className="yes-no-row" role="group" aria-label="Choose yes or no">
+      <span className={`yes-no-thumb${isYes ? ' is-yes' : ''}`} aria-hidden="true" />
+      {[['0', noLabel], ['1', yesLabel]].map(([value, label]) => {
+        const selected = String(form[field]) === value
+        return (
+          <button
+            type="button"
+            className={`yes-no-option${selected ? ' selected' : ''}`}
+            key={value}
+            aria-pressed={selected}
+            onClick={() => update(field, value)}
+          >
+            {label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function SliderField({ label, field, min, max, step = 1, form, update, format, emoji }) {
+  const numeric = Number(form[field])
+  const percent = ((numeric - min) / (max - min)) * 100
+  const bubblePosition = Math.min(92, Math.max(8, percent))
+  const liveEmoji = typeof emoji === 'function' ? emoji(numeric) : emoji
+  return (
+    <div className="slider-group">
+      <div className="slider-header">
+        <label className="form-label" htmlFor={field}>{label}</label>
+      </div>
+      <div className="slider-control" style={{ '--range-fill': `linear-gradient(90deg, #7c3aed 0%, #2563eb ${percent}%, rgba(255,255,255,.1) ${percent}%)` }}>
+        <span className="slider-value-bubble" style={{ left: `${bubblePosition}%` }}>{liveEmoji} {format ? format(form[field]) : form[field]}</span>
+        <input id={field} type="range" min={min} max={max} step={step} value={form[field]} onChange={event => update(field, event.target.value)} />
+      </div>
+    </div>
+  )
+}
+
+function FieldSection({ icon: Icon, children, title }) {
+  return (
+    <section className="form-section" aria-label={title}>
+      <h3 className="section-label"><Icon size={14} />{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+function Field({ label, children }) {
+  return <div className="form-group"><span className="form-label">{label}</span>{children}</div>
+}
 
 export default function AssessmentForm() {
   const navigate = useNavigate()
@@ -10,6 +102,11 @@ export default function AssessmentForm() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [cities, setCities] = useState([])
+  const [loadingStep, setLoadingStep] = useState(0)
+  const [direction, setDirection] = useState(1)
+  const assessmentScrollRef = useRef(null)
+  const stepHeadingRef = useRef(null)
+  const reduceMotion = useReducedMotion()
 
   const [form, setForm] = useState({
     age_group: '', gender: '', occupation: '', location: '',
@@ -21,87 +118,43 @@ export default function AssessmentForm() {
     stress_level: '5', sleep_hours: '7',
     family_history: '0', hpv_known: '0', diabetes: '0',
     passive_smoking: '0', flossing: '0', mouthwash: '0',
-    processed_food: 'medium', sugary_drinks: 'medium', fruit_veg_intake: 'medium'
+    processed_food: 'medium', sugary_drinks: 'medium', fruit_veg_intake: 'medium',
   })
 
-  const [loadingStep, setLoadingStep] = useState(0)
-
-  const loadingSteps = [
-    { 
-      icon: '🔌', 
-      text: 'Connecting to AI server...', 
-      subtext: 'Waking up the backend — this takes ~30 sec after inactivity',
-      color: '#6366f1'
-    },
-    { 
-      icon: '📋', 
-      text: 'Reading your responses...', 
-      subtext: 'Processing 29 health and lifestyle inputs',
-      color: '#0ea5e9'
-    },
-    { 
-      icon: '⚙️', 
-      text: 'Preparing data pipeline...', 
-      subtext: 'Encoding and scaling your inputs for the ML model',
-      color: '#0ea5e9'
-    },
-    { 
-      icon: '🤖', 
-      text: 'Running XGBoost model...', 
-      subtext: 'Analysing your profile across 262 decision trees',
-      color: '#8b5cf6'
-    },
-    { 
-      icon: '🔍', 
-      text: 'Calculating SHAP values...', 
-      subtext: 'Finding which factors are driving your risk score',
-      color: '#8b5cf6'
-    },
-    { 
-      icon: '🗺️', 
-      text: 'Mapping your risk radar...', 
-      subtext: 'Building your 5-category risk breakdown chart',
-      color: '#ec4899'
-    },
-    { 
-      icon: '💡', 
-      text: 'Generating recommendations...', 
-      subtext: 'Personalising health advice based on your top risk factors',
-      color: '#f59e0b'
-    },
-    { 
-      icon: '📄', 
-      text: 'Preparing your report...', 
-      subtext: 'Almost done — putting everything together',
-      color: '#22c55e'
-    },
-    { 
-      icon: '✅', 
-      text: 'Your report is ready!', 
-      subtext: 'Taking you to your results now...',
-      color: '#22c55e'
-    },
-  ]
-
-  const update = (field, value) => setForm(prev => ({ ...prev, [field]: value }))
+  const update = (field, value) => setForm(previous => ({ ...previous, [field]: value }))
 
   useEffect(() => {
     fetch('https://countriesnow.space/api/v0.1/countries/cities', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ country: 'India' })
+      body: JSON.stringify({ country: 'India' }),
     })
-      .then(res => res.json())
+      .then(response => response.json())
       .then(data => {
         if (data?.data) setCities(data.data.sort())
       })
       .catch(() => setCities([
-        'Ahmedabad','Bangalore','Bhopal','Chandigarh',
-        'Chennai','Delhi','Gurgaon','Hyderabad','Indore',
-        'Jaipur','Kolkata','Lucknow','Mumbai','Nagpur',
-        'Noida','Pune','Surat','Vadodara','Visakhapatnam'
+        'Ahmedabad', 'Bangalore', 'Bhopal', 'Chandigarh',
+        'Chennai', 'Delhi', 'Gurgaon', 'Hyderabad', 'Indore',
+        'Jaipur', 'Kolkata', 'Lucknow', 'Mumbai', 'Nagpur',
+        'Noida', 'Pune', 'Surat', 'Vadodara', 'Visakhapatnam',
       ]))
   }, [])
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
+    const wrapper = assessmentScrollRef.current
+    if (wrapper) {
+      wrapper.scrollTop = 0
+      wrapper.querySelectorAll('*').forEach(element => {
+        const style = window.getComputedStyle(element)
+        if (/(auto|scroll)/.test(style.overflowY) && element.scrollHeight > element.clientHeight) {
+          element.scrollTop = 0
+        }
+      })
+    }
+    requestAnimationFrame(() => stepHeadingRef.current?.focus({ preventScroll: true }))
+  }, [step, reduceMotion])
 
   const validate = () => {
     if (step === 1) {
@@ -110,20 +163,32 @@ export default function AssessmentForm() {
       if (!form.occupation.trim()) { setError('Please enter your occupation.'); return false }
       if (!form.location.trim()) { setError('Please enter your city.'); return false }
     }
-    setError(''); return true
+    setError('')
+    return true
   }
 
-  const handleNext = () => { if (validate()) setStep(s => s + 1) }
-  const handleBack = () => { setError(''); setStep(s => s - 1) }
+  const handleNext = () => {
+    if (validate()) {
+      setDirection(1)
+      setStep(current => current + 1)
+    }
+  }
+
+  const handleBack = () => {
+    setError('')
+    setDirection(-1)
+    setStep(current => current - 1)
+  }
 
   const handleSubmit = async () => {
     if (!validate()) return
-    setLoading(true); setError('')
+    setLoading(true)
+    setError('')
     setLoadingStep(0)
     const stepInterval = setInterval(() => {
-      setLoadingStep(prev => {
-        if (prev < loadingSteps.length - 1) return prev + 1
-        return prev
+      setLoadingStep(previous => {
+        if (previous < loadingSteps.length - 1) return previous + 1
+        return previous
       })
     }, 6000)
     try {
@@ -148,22 +213,22 @@ export default function AssessmentForm() {
         flossing: parseInt(form.flossing),
         mouthwash: parseInt(form.mouthwash),
       }
-      const url = 'https://oralguard-api.onrender.com/predict'
+      const url = `${API_URL}/predict`
       console.log('Submitting prediction request', { url, payload })
-      const res = await axios.post(url, payload)
-      navigate('/results', { state: { result: res.data, form } })
-    } catch (e) {
-      const response = e.response
+      const response = await axios.post(url, payload)
+      navigate('/results', { state: { result: response.data, form } })
+    } catch (requestError) {
+      const response = requestError.response
       console.error('Prediction request failed', {
         url: response?.config?.url || 'https://oralguard-api.onrender.com/predict',
         status: response?.status,
         statusText: response?.statusText,
         responseBody: response?.data,
-        errorMessage: e.message,
+        errorMessage: requestError.message,
       })
-      setError(e.code === 'ERR_NETWORK'
+      setError(requestError.code === 'ERR_NETWORK'
         ? 'Server is waking up after inactivity — please wait 30 seconds and try again.'
-        : `Error: ${response?.data?.detail || e.message}`)
+        : `Error: ${response?.data?.detail || requestError.message}`)
     } finally {
       setLoading(false)
       clearInterval(stepInterval)
@@ -171,403 +236,254 @@ export default function AssessmentForm() {
     }
   }
 
-  const OptionCard = ({ field, value, icon, label, sub, danger }) => {
-    const selected = String(form[field]) === String(value)
-    return (
-      <div className={`option-card ${selected ? (danger ? 'selected-danger' : 'selected') : ''}`}
-        onClick={() => update(field, value)}>
-        <div className="option-icon">{icon}</div>
-        <div className="option-label" style={{ color: selected ? (danger ? '#991b1b' : '#1d4ed8') : '#374151' }}>{label}</div>
-        {sub && <div className="option-sub">{sub}</div>}
-      </div>
-    )
-  }
+  const stepFields = [
+    ['age_group', 'gender', 'occupation', 'location'],
+    ['smoking', 'vaping', 'alcohol', 'gutka_paan', 'passive_smoking', 'brushing_freq', 'oral_hygiene_score', 'dental_visits', 'flossing', 'mouthwash'],
+    ['mouth_ulcers', 'white_patches', 'mouth_pain', 'difficulty_swallowing', 'swelling_lumps', 'voice_change', 'stress_level', 'sleep_hours', 'processed_food', 'sugary_drinks', 'fruit_veg_intake', 'family_history', 'diabetes'],
+  ]
+  const answeredCount = stepFields[step - 1].filter(field => String(form[field]).trim() !== '').length
+  const requiredAnswered = ['age_group', 'gender', 'occupation', 'location'].filter(field => String(form[field]).trim() !== '').length
+  const canContinue = step !== 1 || requiredAnswered === 4
+  const transition = reduceMotion
+    ? { initial: false, animate: { opacity: 1 }, exit: { opacity: 1 }, transition: { duration: 0 } }
+    : { initial: { opacity: 0, x: direction * 25 }, animate: { opacity: 1, x: 0 }, exit: { opacity: 0, x: direction * -25 }, transition: { duration: .22, ease: 'easeOut' } }
 
-  const SliderField = ({ label, field, min, max, step: s = 1, format }) => (
-    <div className="slider-group">
-      <div className="slider-header">
-        <span className="slider-label">{label}</span>
-        <span className="slider-value">{format ? format(form[field]) : form[field]}</span>
-      </div>
-      <input type="range" min={min} max={max} step={s}
-        value={form[field]} onChange={e => update(field, e.target.value)} />
+  const selectable = (field, options) => (
+    <div className="option-grid">
+      {options.map(option => <OptionCard key={option.value} {...option} form={form} field={field} update={update} />)}
     </div>
   )
 
-  const stepTitles = ['👤 About You', '🚬 Habits & Hygiene', '🩺 Symptoms & History']
-  const stepDescs = ['Tell us a bit about yourself.', 'Your lifestyle significantly affects oral health.', 'Any symptoms or medical history to note.']
-
   return (
-    <div>
-      <nav className="navbar">
-        <span className="navbar-brand" onClick={() => navigate('/')}>🦷 OralGuard</span>
-        <span style={{ color: '#94a3b8', fontSize: '13px' }}>Step {step} of 3</span>
-      </nav>
+    <div className="page-shell assessment-page">
+      <header className="site-nav">
+        <div className="container nav-inner">
+          <button type="button" className="brand" onClick={() => navigate('/')} aria-label="OralGuard home">
+            <span className="brand-mark"><ShieldCheck size={18} /></span><span>OralGuard</span>
+          </button>
+          <span className="chip"><ShieldCheck size={13} /> Private assessment</span>
+        </div>
+      </header>
 
-      <div className="container" style={{ paddingTop: '32px', paddingBottom: '48px' }}>
-        {/* Progress */}
-        <div className="progress-wrapper">
-          <div className="progress-steps">
-            {[1,2,3].map(n => (
-              <div key={n} className={`progress-step ${n <= step ? 'active' : ''}`} />
-            ))}
-          </div>
-          <div className="progress-meta">
-            <span>{stepTitles[step-1].replace(/^.+ /, '')}</span>
-            <span>{step}/3 complete</span>
-          </div>
+      <main className="container assessment-top">
+        <p className="eyebrow"><Sparkles size={14} /> Your guided assessment</p>
+        <h1>Small steps toward <span className="gradient-text">more awareness.</span></h1>
+        <p>Your answers stay in this session and help create your personalized report.</p>
+
+        <div className="stepper" aria-label={`Step ${step} of 3`}>
+          <div className="stepper-track"><div className="stepper-progress" style={{ width: `${((step - 1) / 2) * 100}%` }} /></div>
+          {stepTitles.map((title, index) => {
+            const number = index + 1
+            return (
+              <div className={`stepper-item${number === step ? ' active' : ''}${number < step ? ' complete' : ''}`} key={title}>
+                <span className="stepper-node">{number < step ? <Check size={15} /> : number}</span>
+                <span>{title}</span>
+              </div>
+            )
+          })}
         </div>
 
-        <div className="card">
-          <div className="card-title">{stepTitles[step-1]}</div>
-          <div className="card-subtitle">{stepDescs[step-1]}</div>
+        <div className="assessment-meta">
+          <span>Step {step} of 3</span>
+          <span>{answeredCount} of {stepFields[step - 1].length} answered</span>
+        </div>
+        <div className="assessment-progress" aria-label="Assessment progress"><span style={{ width: `${(step / 3) * 100}%` }} /></div>
 
-          {/* STEP 1 */}
-          {step === 1 && <>
-            <div className="section-label">Basic info</div>
-            <div className="form-group">
-              <label className="form-label">Age Group *</label>
-              <div className="option-grid">
-                {[['18-20','18–20'],['21-23','21–23'],['24-27','24–27']].map(([v,l]) => (
-                  <div key={v} className={`option-card ${form.age_group===v?'selected':''}`}
-                    onClick={() => update('age_group', v)}>
-                    <div className="option-icon">🎓</div>
-                    <div className="option-label" style={{ color: form.age_group===v?'#1d4ed8':'#374151' }}>{l}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+        <div className="assessment-scroll" ref={assessmentScrollRef}>
+          <AnimatePresence mode="sync" initial={false}>
+            <motion.section className="assessment-card glass-card" key={step} {...transition}>
+              <h2 tabIndex={-1} ref={stepHeadingRef}>{stepTitles[step - 1]}</h2>
+              <p>{stepDescriptions[step - 1]}</p>
 
-            <div className="form-group">
-              <label className="form-label">Gender *</label>
-              <div className="option-grid">
-                {[['Male','👦','Male'],['Female','👧','Female'],['Other','🧑','Other']].map(([v,icon,l]) => (
-                  <div key={v} className={`option-card ${form.gender===v?'selected':''}`}
-                    onClick={() => update('gender', v)}>
-                    <div className="option-icon">{icon}</div>
-                    <div className="option-label" style={{ color: form.gender===v?'#1d4ed8':'#374151' }}>{l}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Occupation *</label>
-              <input className="form-input" type="text"
-                placeholder="e.g. Undergraduate Student, Working Professional..."
-                value={form.occupation} onChange={e => update('occupation', e.target.value)} />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">City *</label>
-              <input
-                className="form-input"
-                type="text"
-                placeholder="Type to search your city..."
-                value={form.location}
-                onChange={e => update('location', e.target.value)}
-                list="cities-list"
-              />
-              <datalist id="cities-list">
-                {cities.map((city, i) => (
-                  <option key={i} value={city} />
-                ))}
-              </datalist>
-              {cities.length === 0 && (
-                <p style={{ fontSize: '12px', color: '#94a3b8', 
-                marginTop: '4px' }}>Loading cities...</p>
-              )}
-            </div>
-          </>}
-
-          {/* STEP 2 */}
-          {step === 2 && <>
-            <div className="section-label">Substance use</div>
-            <div className="form-group">
-              <label className="form-label">Smoking</label>
-              <div className="option-grid">
-                <OptionCard field="smoking" value="0" icon="✅" label="Never" />
-                <OptionCard field="smoking" value="1" icon="🚬" label="Occasionally" danger />
-                <OptionCard field="smoking" value="2" icon="⚠️" label="Regularly" danger />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Vaping / E-cigarettes</label>
-              <div className="option-grid">
-                <OptionCard field="vaping" value="0" icon="✅" label="Never" />
-                <OptionCard field="vaping" value="1" icon="💨" label="Occasionally" danger />
-                <OptionCard field="vaping" value="2" icon="⚠️" label="Regularly" danger />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Alcohol</label>
-              <div className="option-grid">
-                <OptionCard field="alcohol" value="0" icon="✅" label="Never" />
-                <OptionCard field="alcohol" value="1" icon="🍺" label="Social" danger />
-                <OptionCard field="alcohol" value="2" icon="⚠️" label="Regularly" danger />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Gutka / Paan / Betel Nut</label>
-              <div className="option-grid">
-                <OptionCard field="gutka_paan" value="0" icon="✅" label="Never" />
-                <OptionCard field="gutka_paan" value="1" icon="🌿" label="Yes" danger />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Passive Smoking</label>
-              <div className="option-grid">
-                <OptionCard field="passive_smoking" value="0" icon="✅" label="Not exposed" />
-                <OptionCard field="passive_smoking" value="1" icon="😷" label="Regularly exposed" danger />
-              </div>
-            </div>
-
-            <div className="section-label">Oral hygiene</div>
-            <SliderField label="Brushing Frequency (times/day)" field="brushing_freq" min={0} max={2}
-              format={v => v === '0' ? 'Rarely' : v === '1' ? '1× daily' : '2× daily'} />
-            <SliderField label="Oral Hygiene Rating (self-assessed)" field="oral_hygiene_score" min={1} max={5}
-              format={v => `${v} / 5`} />
-
-            <div className="form-group">
-              <label className="form-label">Dental Visits</label>
-              <select className="form-select" value={form.dental_visits}
-                onChange={e => update('dental_visits', e.target.value)}>
-                <option value="never">Never</option>
-                <option value="problem_only">Only when there is a problem</option>
-                <option value="yearly">Once a year</option>
-                <option value="sixmonthly">Every 6 months</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Do you floss?</label>
-              <div className="option-grid">
-                <OptionCard field="flossing" value="0" icon="❌" label="No" />
-                <OptionCard field="flossing" value="1" icon="✅" label="Yes" />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Do you use mouthwash?</label>
-              <div className="option-grid">
-                <OptionCard field="mouthwash" value="0" icon="❌" label="No" />
-                <OptionCard field="mouthwash" value="1" icon="✅" label="Yes" />
-              </div>
-            </div>
-          </>}
-
-          {/* STEP 3 */}
-          {step === 3 && <>
-            <div className="section-label">Current symptoms</div>
-            <div className="form-group">
-              <label className="form-label">Mouth Ulcers (past 6 months)</label>
-              <div className="option-grid">
-                <OptionCard field="mouth_ulcers" value="0" icon="✅" label="None" />
-                <OptionCard field="mouth_ulcers" value="1" icon="😬" label="Occasionally" danger />
-                <OptionCard field="mouth_ulcers" value="2" icon="⚠️" label="Frequently" danger />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">White / Red Patches in Mouth</label>
-              <div className="option-grid">
-                <OptionCard field="white_patches" value="0" icon="✅" label="None" />
-                <OptionCard field="white_patches" value="1" icon="🤔" label="Not sure" danger />
-                <OptionCard field="white_patches" value="2" icon="⚠️" label="Yes" danger />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Mouth Pain / Soreness</label>
-              <div className="option-grid">
-                <OptionCard field="mouth_pain" value="0" icon="✅" label="None" />
-                <OptionCard field="mouth_pain" value="1" icon="😣" label="Mild" danger />
-                <OptionCard field="mouth_pain" value="2" icon="⚠️" label="Severe" danger />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Difficulty Swallowing</label>
-              <div className="option-grid">
-                <OptionCard field="difficulty_swallowing" value="0" icon="✅" label="None" />
-                <OptionCard field="difficulty_swallowing" value="1" icon="😰" label="Sometimes" danger />
-                <OptionCard field="difficulty_swallowing" value="2" icon="⚠️" label="Often" danger />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Swelling / Lumps in Mouth or Neck</label>
-              <div className="option-grid">
-                <OptionCard field="swelling_lumps" value="0" icon="✅" label="None" />
-                <OptionCard field="swelling_lumps" value="1" icon="🤔" label="Not sure" danger />
-                <OptionCard field="swelling_lumps" value="2" icon="⚠️" label="Yes" danger />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Voice Changes / Hoarseness</label>
-              <div className="option-grid">
-                <OptionCard field="voice_change" value="0" icon="✅" label="None" />
-                <OptionCard field="voice_change" value="1" icon="🗣️" label="Sometimes" danger />
-                <OptionCard field="voice_change" value="2" icon="⚠️" label="Often" danger />
-              </div>
-            </div>
-
-            <div className="section-label">Lifestyle</div>
-            <SliderField label="Stress Level" field="stress_level" min={1} max={10}
-              format={v => `${v} / 10`} />
-            <SliderField label="Average Sleep" field="sleep_hours" min={4} max={9} s={0.5}
-              format={v => `${v}h`} />
-
-            <div className="section-label">Diet</div>
-            {[
-              { field: 'processed_food', label: 'Processed / Junk Food' },
-              { field: 'sugary_drinks', label: 'Sugary Drinks' },
-              { field: 'fruit_veg_intake', label: 'Fruit & Vegetable Intake' },
-            ].map(({ field, label }) => (
-              <div key={field} className="form-group">
-                <label className="form-label">{label}</label>
-                <div className="option-grid">
-                  <OptionCard field={field} value="low" icon="🟢" label="Low" />
-                  <OptionCard field={field} value="medium" icon="🟡" label="Medium" />
-                  <OptionCard field={field} value="high" icon="🔴" label="High"
-                    danger={field !== 'fruit_veg_intake'} />
-                </div>
-              </div>
-            ))}
-
-            <div className="section-label">Medical history</div>
-            <div className="form-group">
-              <label className="form-label">Family History of Cancer</label>
-              <div className="option-grid">
-                <OptionCard field="family_history" value="0" icon="✅" label="No" />
-                <OptionCard field="family_history" value="1" icon="🧬" label="Yes" danger />
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Diagnosed with Diabetes</label>
-              <div className="option-grid">
-                <OptionCard field="diabetes" value="0" icon="✅" label="No" />
-                <OptionCard field="diabetes" value="1" icon="💉" label="Yes" danger />
-              </div>
-            </div>
-          </>}
-
-          {error && <div className="error-box">⚠️ {error}</div>}
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
-            {step > 1
-              ? <button className="btn-secondary" onClick={handleBack}>← Back</button>
-              : <span />
-            }
-            {step < 3
-              ? <button className="btn-primary" onClick={handleNext}>Next Step →</button>
-              : (
+              {step === 1 && (
                 <>
-                  {loading ? (
-                    <div style={{
-                      position: 'fixed',
-                      top: 0, left: 0, right: 0, bottom: 0,
-                      background: 'rgba(15, 23, 42, 0.85)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      zIndex: 9999,
-                      flexDirection: 'column',
-                      gap: '0px'
-                    }}>
-                      <div style={{
-                        background: 'white',
-                        borderRadius: '20px',
-                        padding: '40px 36px',
-                        textAlign: 'center',
-                        maxWidth: '340px',
-                        width: '90%',
-                        boxShadow: '0 25px 50px rgba(0,0,0,0.3)'
-                      }}>
-                        <div style={{ 
-                          fontSize: '52px', 
-                          marginBottom: '16px',
-                          animation: 'pulse 1.5s ease-in-out infinite'
-                        }}>
-                          {loadingSteps[loadingStep]?.icon}
-                        </div>
-                        <div style={{
-                          fontSize: '18px',
-                          fontWeight: 800,
-                          color: '#0f172a',
-                          marginBottom: '6px'
-                        }}>
-                          {loadingSteps[loadingStep]?.text}
-                        </div>
-                        <div style={{
-                          fontSize: '13px',
-                          color: '#64748b',
-                          marginBottom: '24px'
-                        }}>
-                          {loadingSteps[loadingStep]?.subtext}
-                        </div>
-
-                        <div style={{
-                          background: '#f1f5f9',
-                          borderRadius: '99px',
-                          height: '6px',
-                          overflow: 'hidden',
-                          marginBottom: '12px'
-                        }}>
-                          <div style={{
-                            height: '6px',
-                            borderRadius: '99px',
-                            background: `linear-gradient(90deg, #2563eb, ${loadingSteps[loadingStep]?.color || '#7c3aed'})`,
-                            width: `${((loadingStep + 1) / loadingSteps.length) * 100}%`,
-                            transition: 'width 1.2s ease'
-                          }}/>
-                        </div>
-
-                        <div style={{
-                          fontSize: '12px',
-                          color: '#94a3b8',
-                          marginTop: '4px'
-                        }}>
-                          Step {loadingStep + 1} of {loadingSteps.length} 
-                          · {Math.round(((loadingStep + 1) / loadingSteps.length) * 100)}% complete
-                        </div>
-
-                        <div style={{
-                          marginTop: '20px',
-                          padding: '12px 14px',
-                          background: '#f0fdf4',
-                          borderRadius: '8px',
-                          fontSize: '12px',
-                          color: '#166534',
-                          lineHeight: 1.5
-                        }}>
-                          ⏱️ <strong>Did you know?</strong> Oral cancer is 90% treatable 
-                          when caught early. This assessment checks {29} risk indicators 
-                          across your lifestyle and symptoms.
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {!loading && (
-                    <button
-                      className="btn-primary"
-                      onClick={handleSubmit}
-                      style={{ marginLeft: 'auto', minWidth: '180px' }}>
-                      🔍 Get My Report
-                    </button>
-                  )}
+                  <FieldSection icon={UserRound} title="About you">
+                    <Field label="Age group *">
+                      {selectable('age_group', [
+                        { value: '18-20', icon: '🎓', label: '18–20' },
+                        { value: '21-23', icon: '🧑‍🎓', label: '21–23' },
+                        { value: '24-27', icon: '🌱', label: '24–27' },
+                      ])}
+                      {!form.age_group && <p className="field-error">Please select your age group.</p>}
+                    </Field>
+                    <Field label="Gender *">
+                      {selectable('gender', [
+                        { value: 'Male', icon: '👨', label: 'Male' },
+                        { value: 'Female', icon: '👩', label: 'Female' },
+                        { value: 'Other', icon: '🧑', label: 'Other' },
+                      ])}
+                      {!form.gender && <p className="field-error">Please select your gender.</p>}
+                    </Field>
+                    <Field label="Occupation *">
+                      <input className="form-input" type="text" placeholder="e.g. Student, working professional..." value={form.occupation} onChange={event => update('occupation', event.target.value)} aria-invalid={!form.occupation.trim()} />
+                      {!form.occupation.trim() && <p className="field-error">Please enter your occupation.</p>}
+                    </Field>
+                    <Field label="City *">
+                      <input className="form-input" type="text" placeholder="Type to search your city..." value={form.location} onChange={event => update('location', event.target.value)} list="cities-list" aria-invalid={!form.location.trim()} />
+                      <datalist id="cities-list">{cities.map((city, index) => <option key={index} value={city} />)}</datalist>
+                      {!form.location.trim() && <p className="field-error">Please enter your city.</p>}
+                      {cities.length === 0 && <p className="field-hint">Loading city suggestions…</p>}
+                    </Field>
+                  </FieldSection>
                 </>
-              )
-            }
-          </div>
+              )}
+
+              {step === 2 && (
+                <>
+                  <FieldSection icon={HeartPulse} title="Substance use">
+                    <Field label="Smoking">
+                      {selectable('smoking', [
+                        { value: '0', icon: '🌿', label: 'Never' },
+                        { value: '1', icon: '🚬', label: 'Occasionally', danger: true },
+                        { value: '2', icon: '⚠️', label: 'Regularly', danger: true },
+                      ])}
+                    </Field>
+                    <Field label="Vaping / e-cigarettes">
+                      {selectable('vaping', [
+                        { value: '0', icon: '🌬️', label: 'Never' },
+                        { value: '1', icon: '💨', label: 'Occasionally', danger: true },
+                        { value: '2', icon: '⚠️', label: 'Regularly', danger: true },
+                      ])}
+                    </Field>
+                    <Field label="Alcohol">
+                      {selectable('alcohol', [
+                        { value: '0', icon: '💧', label: 'Never' },
+                        { value: '1', icon: '🥂', label: 'Social', danger: true },
+                        { value: '2', icon: '⚠️', label: 'Regularly', danger: true },
+                      ])}
+                    </Field>
+                    <Field label="Gutka / paan / betel nut"><YesNo field="gutka_paan" form={form} update={update} noLabel="Never" yesLabel="Sometimes" /></Field>
+                    <Field label="Passive smoking"><YesNo field="passive_smoking" form={form} update={update} noLabel="Not exposed" yesLabel="Exposed" /></Field>
+                  </FieldSection>
+
+                  <FieldSection icon={ShieldCheck} title="Oral hygiene">
+                    <SliderField label="Brushing frequency" field="brushing_freq" min={0} max={2} form={form} update={update} format={value => value === '0' ? 'Rarely' : value === '1' ? '1× daily' : '2× daily'} emoji={value => value === 0 ? '🪥' : value === 1 ? '😁' : '✨'} />
+                    <SliderField label="Oral hygiene rating" field="oral_hygiene_score" min={1} max={5} form={form} update={update} format={value => `${value} / 5`} emoji={value => value < 3 ? '😐' : value < 5 ? '🙂' : '✨'} />
+                    <Field label="Dental visits">
+                      <select className="form-select" value={form.dental_visits} onChange={event => update('dental_visits', event.target.value)}>
+                        <option value="never">Never</option>
+                        <option value="problem_only">Only when there is a problem</option>
+                        <option value="yearly">Once a year</option>
+                        <option value="sixmonthly">Every 6 months</option>
+                      </select>
+                    </Field>
+                    <Field label="Do you floss?"><YesNo field="flossing" form={form} update={update} /></Field>
+                    <Field label="Do you use mouthwash?"><YesNo field="mouthwash" form={form} update={update} /></Field>
+                  </FieldSection>
+                </>
+              )}
+
+              {step === 3 && (
+                <>
+                  <FieldSection icon={Activity} title="Symptoms lately">
+                    <Field label="Mouth ulcers (past 6 months)">
+                      {selectable('mouth_ulcers', [
+                        { value: '0', icon: '🌱', label: 'None' },
+                        { value: '1', icon: '😬', label: 'Occasionally', danger: true },
+                        { value: '2', icon: '⚠️', label: 'Frequently', danger: true },
+                      ])}
+                    </Field>
+                    <Field label="White / red patches in mouth">
+                      {selectable('white_patches', [
+                        { value: '0', icon: '🌱', label: 'None' },
+                        { value: '1', icon: '🤔', label: 'Not sure', danger: true },
+                        { value: '2', icon: '⚠️', label: 'Yes', danger: true },
+                      ])}
+                    </Field>
+                    <Field label="Mouth pain / soreness">
+                      {selectable('mouth_pain', [
+                        { value: '0', icon: '🙂', label: 'None' },
+                        { value: '1', icon: '😣', label: 'Mild', danger: true },
+                        { value: '2', icon: '⚠️', label: 'Severe', danger: true },
+                      ])}
+                    </Field>
+                    <Field label="Difficulty swallowing">
+                      {selectable('difficulty_swallowing', [
+                        { value: '0', icon: '🌱', label: 'None' },
+                        { value: '1', icon: '😟', label: 'Sometimes', danger: true },
+                        { value: '2', icon: '⚠️', label: 'Often', danger: true },
+                      ])}
+                    </Field>
+                    <Field label="Swelling / lumps in mouth or neck">
+                      {selectable('swelling_lumps', [
+                        { value: '0', icon: '🌱', label: 'None' },
+                        { value: '1', icon: '🤔', label: 'Not sure', danger: true },
+                        { value: '2', icon: '⚠️', label: 'Yes', danger: true },
+                      ])}
+                    </Field>
+                    <Field label="Voice changes / hoarseness">
+                      {selectable('voice_change', [
+                        { value: '0', icon: '🗣️', label: 'None' },
+                        { value: '1', icon: '🤔', label: 'Sometimes', danger: true },
+                        { value: '2', icon: '⚠️', label: 'Often', danger: true },
+                      ])}
+                    </Field>
+                  </FieldSection>
+
+                  <FieldSection icon={Sparkles} title="Lifestyle">
+                    <SliderField label="Stress level" field="stress_level" min={1} max={10} form={form} update={update} format={value => `${value} / 10`} emoji={value => value < 4 ? '😌' : value < 7 ? '😐' : '😮‍💨'} />
+                    <SliderField label="Average sleep" field="sleep_hours" min={4} max={9} step={0.5} form={form} update={update} format={value => `${value}h`} emoji={value => value < 6 ? '🥱' : value < 8 ? '🙂' : '😴'} />
+                  </FieldSection>
+
+                  <FieldSection icon={HeartPulse} title="Diet">
+                    {[
+                      { field: 'processed_food', label: 'Processed / junk food', highDanger: true },
+                      { field: 'sugary_drinks', label: 'Sugary drinks', highDanger: true },
+                      { field: 'fruit_veg_intake', label: 'Fruit & vegetable intake', highDanger: false },
+                    ].map(({ field, label, highDanger }) => (
+                      <Field key={field} label={label}>
+                        {selectable(field, [
+                          { value: 'low', icon: '🟢', label: 'Low' },
+                          { value: 'medium', icon: '🟡', label: 'Medium' },
+                          { value: 'high', icon: '🔴', label: 'High', danger: highDanger },
+                        ])}
+                      </Field>
+                    ))}
+                  </FieldSection>
+
+                  <FieldSection icon={Stethoscope} title="Medical history">
+                    <Field label="Family history of cancer"><YesNo field="family_history" form={form} update={update} /></Field>
+                    <Field label="Diagnosed with diabetes"><YesNo field="diabetes" form={form} update={update} /></Field>
+                  </FieldSection>
+                </>
+              )}
+
+              {error && <div className="form-error" role="alert"><TriangleAlert size={16} />{error}</div>}
+            </motion.section>
+          </AnimatePresence>
         </div>
+      </main>
+
+      <div className="assessment-action-wrap">
+        <div className="container assessment-actions">
+          <button className="btn-ghost" onClick={handleBack} disabled={step === 1} type="button"><ArrowLeft size={16} /> Back</button>
+          {step < 3
+            ? <button className="btn-primary" onClick={handleNext} disabled={!canContinue} type="button">Next step <ArrowRight size={16} /></button>
+            : <button className="btn-primary" onClick={handleSubmit} disabled={loading} type="button"><Sparkles size={16} /> Get My Report</button>}
+        </div>
+        {step === 1 && !canContinue && <p className="field-hint" style={{ textAlign: 'center', marginBottom: 0 }}>Complete the required fields above to continue.</p>}
       </div>
+
+      {loading && (
+        <div className="loading-backdrop" role="dialog" aria-modal="true" aria-labelledby="loading-title">
+          <motion.div className="loading-modal glass-card" initial={{ opacity: 0, scale: .96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: reduceMotion ? 0 : .2 }}>
+            <div className="loading-tooth" aria-hidden="true"><span>🦷</span></div>
+            <h2 id="loading-title">{loadingSteps[loadingStep]?.text}</h2>
+            <p>{loadingSteps[loadingStep]?.subtext}</p>
+            <div className="loading-track"><span style={{ width: `${((loadingStep + 1) / loadingSteps.length) * 100}%` }} /></div>
+            <div className="loading-counter">Step {loadingStep + 1} of {loadingSteps.length} · {Math.round(((loadingStep + 1) / loadingSteps.length) * 100)}% complete</div>
+            <div className="loading-checklist">
+              {loadingSteps.map((item, index) => (
+                <div className={`loading-check${index < loadingStep ? ' done' : ''}${index === loadingStep ? ' active' : ''}`} key={item.text}>
+                  {index < loadingStep ? <CheckCircle2 size={13} /> : index === loadingStep ? <Sparkles size={13} /> : <Circle size={13} />}
+                  <span>{item.text.replace('...', '')}</span>
+                </div>
+              ))}
+            </div>
+            <div className="loading-tip"><Info size={13} /> <strong>Did you know?</strong> Oral cancer is far more treatable when caught early.</div>
+          </motion.div>
+        </div>
+      )}
     </div>
   )
 }
