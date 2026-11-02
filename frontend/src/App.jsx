@@ -1,35 +1,25 @@
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
-import Home from './pages/Home'
-import AssessmentForm from './pages/AssessmentForm'
-import Results from './pages/Results'
-import './App.css'
+import { lazy, Suspense } from 'react'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { MotionConfig } from 'framer-motion'
+import ScrollToTop from './components/ScrollToTop'
 
-function ScrollToTop() {
-  const { pathname } = useLocation()
+const Home = lazy(() => import('./pages/Home'))
+const AssessmentForm = lazy(() => import('./pages/AssessmentForm'))
+const Results = lazy(() => import('./pages/Results'))
 
-  useEffect(() => {
-    const el = document.getElementById('root')
-    if (el) el.scrollTop = 0
-    window.scrollTo(0, 0)
-    document.documentElement.scrollTop = 0
-    document.body.scrollTop = 0
-  }, [pathname])
-
-  return null
-}
-
-function App() {
+export default function App() {
   return (
-    <BrowserRouter>
-      <ScrollToTop />
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/assess" element={<AssessmentForm />} />
-        <Route path="/results" element={<Results />} />
-      </Routes>
-    </BrowserRouter>
+    <MotionConfig reducedMotion="user">
+      <BrowserRouter>
+        <ScrollToTop />
+        <Suspense fallback={<div className="page-shell" aria-label="Loading OralGuard" />}>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/assess" element={<AssessmentForm />} />
+            <Route path="/results" element={<Results />} />
+          </Routes>
+        </Suspense>
+      </BrowserRouter>
+    </MotionConfig>
   )
 }
-
-export default App
