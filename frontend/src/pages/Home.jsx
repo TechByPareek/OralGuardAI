@@ -41,22 +41,36 @@ function ToothIllustration() {
   return (
     <svg className="tooth-illustration" viewBox="0 0 460 430" role="img" aria-label="Tooth protected by a shield with a pulse line">
       <defs>
+        <radialGradient id="heroGlow" cx="50%" cy="50%" r="50%">
+          <stop stopColor="#7C3AED" stopOpacity=".42" />
+          <stop offset=".58" stopColor="#2563EB" stopOpacity=".3" />
+          <stop offset="1" stopColor="#0B1020" stopOpacity="0" />
+        </radialGradient>
         <linearGradient id="toothFill" x1="120" x2="340" y1="70" y2="360" gradientUnits="userSpaceOnUse">
           <stop stopColor="#fff" />
+          <stop offset=".5" stopColor="#F5F6FF" />
           <stop offset="1" stopColor="#C8D6FF" />
         </linearGradient>
         <linearGradient id="shieldFill" x1="275" x2="400" y1="90" y2="280" gradientUnits="userSpaceOnUse">
           <stop stopColor="#22D3EE" stopOpacity=".95" />
           <stop offset="1" stopColor="#7C3AED" stopOpacity=".92" />
         </linearGradient>
+        <filter id="toothInnerShadow" x="-10%" y="-10%" width="120%" height="120%">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur" />
+          <feOffset in="blur" dx="0" dy="2" result="offsetBlur" />
+          <feComposite in="SourceAlpha" in2="offsetBlur" operator="out" result="innerShadow" />
+          <feFlood floodColor="#7484B8" floodOpacity=".24" result="shadowColor" />
+          <feComposite in="shadowColor" in2="innerShadow" operator="in" result="coloredInnerShadow" />
+          <feComposite in="SourceGraphic" in2="coloredInnerShadow" operator="over" />
+        </filter>
         <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
           <feGaussianBlur stdDeviation="9" result="blur" />
           <feComposite in="SourceGraphic" in2="blur" operator="over" />
         </filter>
       </defs>
-      <circle cx="225" cy="210" r="155" fill="#6D5BFF" fillOpacity=".08" />
+      <circle cx="225" cy="210" r="155" fill="url(#heroGlow)" />
       <circle cx="225" cy="210" r="123" stroke="#A5B4FC" strokeOpacity=".13" strokeDasharray="3 11" strokeWidth="2" />
-      <path d="M151 99c-29 0-53 24-53 55 0 19 9 34 15 52 6 19 9 49 19 75 6 16 15 31 28 31 18 0 17-44 35-60 9-8 22-8 31 0 18 16 17 60 35 60 13 0 22-15 28-31 10-26 13-56 19-75 6-18 15-33 15-52 0-31-24-55-53-55-20 0-35 12-60 12s-40-12-59-12Z" fill="url(#toothFill)" stroke="#E8EDFF" strokeWidth="4" />
+      <path d="M151 99c-29 0-53 24-53 55 0 19 9 34 15 52 6 19 9 49 19 75 6 16 15 31 28 31 18 0 17-44 35-60 9-8 22-8 31 0 18 16 17 60 35 60 13 0 22-15 28-31 10-26 13-56 19-75 6-18 15-33 15-52 0-31-24-55-53-55-20 0-35 12-60 12s-40-12-59-12Z" fill="url(#toothFill)" stroke="#E8EDFF" strokeWidth="4" filter="url(#toothInnerShadow)" />
       <path d="M324 94 389 119v54c0 52-31 88-65 105-34-17-65-53-65-105v-54l65-25Z" fill="url(#shieldFill)" stroke="#C4F1FF" strokeOpacity=".8" strokeWidth="3" filter="url(#softGlow)" />
       <path d="m295 174 19 19 39-42" fill="none" stroke="white" strokeLinecap="round" strokeLinejoin="round" strokeWidth="9" />
       <path d="M50 274h70l18-25 23 48 25-71 22 48h48" fill="none" stroke="#22D3EE" strokeLinecap="round" strokeLinejoin="round" strokeWidth="5" />

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -12,9 +13,59 @@ os.environ.setdefault("MPLCONFIGDIR", ".matplotlib")
 import shap
 
 
+logger = logging.getLogger(__name__)
+
 MODEL_PATH = "models/xgb_model.pkl"
 PREPROCESSOR_PATH = "models/preprocessor.pkl"
 RISK_LABELS = {0: "Low", 1: "Medium", 2: "High"}
+MIN_ABSOLUTE_SHAP_VALUE = 0.01
+
+ABSENCE_FEATURES = {
+    "smoking",
+    "vaping",
+    "alcohol",
+    "gutka_paan",
+    "passive_smoking",
+    "mouth_ulcers",
+    "white_patches",
+    "mouth_pain",
+    "difficulty_swallowing",
+    "swelling_lumps",
+    "voice_change",
+    "family_history",
+    "hpv_known",
+    "diabetes",
+    "flossing",
+    "mouthwash",
+    "substance_duration",
+}
+
+SUBSTANCE_DURATION_ALIASES = {
+    "never": "I don't use any",
+    "i don't use any": "I don't use any",
+    "1-3 years": "1�3 years",
+    "1–3 years": "1�3 years",
+}
+
+USER_VALUE_LABELS = {
+    "smoking": {0: "Never", 1: "Occasionally", 2: "Regularly"},
+    "vaping": {0: "Never", 1: "Occasionally", 2: "Regularly"},
+    "alcohol": {0: "Never", 1: "Social", 2: "Regularly"},
+    "gutka_paan": {0: "Never", 1: "Sometimes"},
+    "passive_smoking": {0: "Not exposed", 1: "Exposed"},
+    "mouth_ulcers": {0: "None", 1: "Occasionally", 2: "Frequently"},
+    "white_patches": {0: "None", 1: "Not sure", 2: "Yes"},
+    "mouth_pain": {0: "None", 1: "Mild", 2: "Severe"},
+    "difficulty_swallowing": {0: "None", 1: "Sometimes", 2: "Often"},
+    "swelling_lumps": {0: "None", 1: "Not sure", 2: "Yes"},
+    "voice_change": {0: "None", 1: "Sometimes", 2: "Often"},
+    "family_history": {0: "No", 1: "Yes"},
+    "hpv_known": {0: "No", 1: "Yes"},
+    "diabetes": {0: "No", 1: "Yes"},
+    "flossing": {0: "No", 1: "Yes"},
+    "mouthwash": {0: "No", 1: "Yes"},
+    "brushing_freq": {0: "Rarely", 1: "1x daily", 2: "2x daily"},
+}
 
 FRIENDLY_NAMES = {
     "smoking": "Smoking habit",
@@ -114,7 +165,7 @@ def predict(input_dict: dict[str, Any], model: Any, preprocessor: Any) -> dict[s
     Returns:
         A dictionary with the risk label, predicted class probability, and risk score.
     """
-    input_df = pd.DataFrame([input_dict], columns=RAW_FEATURES)
+    input_df = _model_input_frame(input_dict)
     transformed_input = preprocessor.transform(input_df)
     prediction = int(model.predict(transformed_input)[0])
     probabilities = model.predict_proba(transformed_input)[0]
@@ -143,22 +194,87 @@ def _base_feature_name(transformed_feature_name: str) -> str:
     return clean_name.split("_", 1)[0]
 
 
-def _class_shap_values(shap_values: Any, predicted_class: int) -> np.ndarray:
-    """Select SHAP values for the predicted class from common SHAP return shapes.
+def _model_input_frame(input_dict: dict[str, Any]) -> pd.DataFrame:
+    """Build the training-ordered input frame and normalize known UI aliases."""
+    model_input = dict(input_dict)
+    duration = model_input.get("substance_duration")
+    if isinstance(duration, str):
+        model_input["substance_duration"] = SUBSTANCE_DURATION_ALIASES.get(
+            duration.strip().casefold(), duration
+        )
+    return pd.DataFrame([model_input], columns=RAW_FEATURES)
+
+
+def _readable_user_value(feature: str, value: Any) -> str:
+    """Return a concise display value while preserving the original answer."""
+    if feature == "substance_duration" and isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"never", "i don't use any"}:
+            return "Never"
+        if normalized in {"1-3 years", "1–3 years", "1�3 years"}:
+            return "1-3 years"
+
+    labels = USER_VALUE_LABELS.get(feature)
+    if labels is not None:
+        try:
+            return labels.get(int(value), str(value))
+        except (TypeError, ValueError):
+            return str(value)
+
+    if feature == "dental_visits":
+        return {
+            "never": "Never",
+            "problem_only": "Only when there is a problem",
+            "yearly": "Once a year",
+            "sixmonthly": "Every 6 months",
+        }.get(str(value), str(value))
+    if feature == "oral_hygiene_score":
+        return f"{value} / 5"
+    if feature == "stress_level":
+        return f"{value} / 10"
+    if feature == "sleep_hours":
+        return f"{value} hours"
+    if feature in {"processed_food", "sugary_drinks", "fruit_veg_intake"}:
+        return str(value).capitalize()
+    return str(value)
+
+
+def _is_absence_answer(feature: str, value: Any) -> bool:
+    """Identify absence answers that must not be presented as increasing risk."""
+    if feature not in ABSENCE_FEATURES:
+        return False
+    try:
+        if float(value) == 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return isinstance(value, str) and value.strip().casefold() in {
+        "never",
+        "no",
+        "none",
+        "not exposed",
+        "i don't use any",
+    }
+
+
+def _class_shap_values(shap_values: Any, class_index: int) -> np.ndarray:
+    """Select SHAP values for a requested class from common return shapes.
 
     Args:
         shap_values: Values returned by shap.TreeExplainer.shap_values.
-        predicted_class: Integer class predicted by the model.
+        class_index: Index of the requested class in the model's class order.
 
     Returns:
         One-dimensional SHAP value array for the selected class and sample.
     """
     if isinstance(shap_values, list):
-        return np.asarray(shap_values[predicted_class][0])
+        return np.asarray(shap_values[class_index][0])
 
     values = np.asarray(shap_values)
     if values.ndim == 3:
-        return values[0, :, predicted_class]
+        if class_index >= values.shape[2]:
+            raise ValueError(f"SHAP output has no class index {class_index}.")
+        return values[0, :, class_index]
     if values.ndim == 2:
         return values[0]
     return values.reshape(-1)
@@ -175,28 +291,73 @@ def explain(input_dict: dict[str, Any], model: Any, preprocessor: Any) -> list[d
     Returns:
         A list of the top 5 feature impacts sorted by absolute SHAP value.
     """
-    input_df = pd.DataFrame([input_dict], columns=RAW_FEATURES)
+    input_df = _model_input_frame(input_dict)
     transformed_input = preprocessor.transform(input_df)
-    predicted_class = int(model.predict(transformed_input)[0])
 
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(transformed_input)
-    class_values = _class_shap_values(shap_values, predicted_class)
-    feature_names = preprocessor.get_feature_names_out()
+    classes = [int(class_label) for class_label in model.classes_]
+    high_class_label = next(
+        class_label
+        for class_label, risk_label in RISK_LABELS.items()
+        if risk_label == "High"
+    )
+    try:
+        high_class_index = classes.index(high_class_label)
+    except ValueError as exc:
+        raise ValueError(
+            f"Model classes {classes} do not include the High-risk class "
+            f"{high_class_label}."
+        ) from exc
 
-    rows = []
-    for transformed_name, shap_value in zip(feature_names, class_values):
-        feature = _base_feature_name(str(transformed_name))
-        rows.append(
-            {
-                "feature": feature,
-                "display_name": FRIENDLY_NAMES.get(feature, feature.replace("_", " ").title()),
-                "impact": round(float(abs(shap_value)), 2),
-                "direction": "increases risk" if shap_value >= 0 else "decreases risk",
-            }
+    class_values = _class_shap_values(shap_values, high_class_index)
+    feature_names = preprocessor.get_feature_names_out()
+    if len(feature_names) != len(class_values):
+        raise ValueError(
+            "Transformed feature count does not match the SHAP explanation: "
+            f"{len(feature_names)} != {len(class_values)}."
         )
 
-    return sorted(rows, key=lambda row: row["impact"], reverse=True)[:5]
+    feature_impacts: dict[str, float] = {}
+    for transformed_name, shap_value in zip(feature_names, class_values):
+        feature = _base_feature_name(str(transformed_name))
+        feature_impacts[feature] = feature_impacts.get(feature, 0.0) + float(shap_value)
+
+    rows: list[tuple[float, dict[str, Any]]] = []
+    for feature, shap_value in feature_impacts.items():
+        if abs(shap_value) < MIN_ABSOLUTE_SHAP_VALUE:
+            continue
+        direction = "increases risk" if shap_value > 0 else "decreases risk"
+        user_value = input_dict.get(feature)
+        if direction == "increases risk" and _is_absence_answer(feature, user_value):
+            logger.warning(
+                "Suppressing contradictory positive SHAP factor %s=%r "
+                "(SHAP %.6f); full feature vector=%r",
+                feature,
+                user_value,
+                shap_value,
+                input_dict,
+            )
+            continue
+        rows.append(
+            (
+                abs(shap_value),
+                {
+                    "feature": feature,
+                    "display_name": FRIENDLY_NAMES.get(
+                        feature, feature.replace("_", " ").title()
+                    ),
+                    "impact": round(abs(shap_value), 2),
+                    "direction": direction,
+                    "user_value": _readable_user_value(feature, user_value),
+                },
+            )
+        )
+
+    return [
+        row
+        for _, row in sorted(rows, key=lambda item: item[0], reverse=True)[:5]
+    ]
 
 
 def generate_recommendations(risk: str, top_factors: list[dict[str, Any]]) -> list[str]:
@@ -211,6 +372,8 @@ def generate_recommendations(risk: str, top_factors: list[dict[str, Any]]) -> li
     """
     recommendations = []
     for factor in top_factors:
+        if factor.get("direction") != "increases risk":
+            continue
         recommendation = RECOMMENDATION_MAP.get(factor["feature"])
         if recommendation and recommendation not in recommendations:
             recommendations.append(recommendation)
